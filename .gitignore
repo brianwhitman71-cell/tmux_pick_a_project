@@ -1,6 +1,7 @@
-# Live, per-host registry: your actual projects, dirs, and hosts.
-# Each machine keeps its own untracked copy (install.sh seeds it from the example).
+# Per-host config — each machine keeps its own untracked copy (install.sh seeds
+# these from the .example files). Keeps real project names/paths/fleet out of git.
 projects.tsv
+peers
 
 # editor / OS cruft
 *.swp

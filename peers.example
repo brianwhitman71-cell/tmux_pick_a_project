@@ -1,0 +1,10 @@
+# peers — the fleet of hosts that share projects, for cross-host jumping.
+# One short hostname (output of `hostname -s`) per line. Each host skips itself,
+# so the SAME file works on every box. Requires passwordless SSH between them.
+#
+# install.sh copies this to `peers` (gitignored, per-host) on first install.
+# With everything commented out, proj stays single-host. Uncomment your fleet:
+#red
+#blu
+#fnix
+#nixf

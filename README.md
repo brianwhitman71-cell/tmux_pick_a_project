@@ -1,16 +1,18 @@
-# proj — a project-centric tmux session switcher
+# proj — a project-centric tmux switcher for a fleet of machines
 
 Stop thinking about *which host* or *which tmux session* you were in. Think in
-**projects**. One short command picks a project from a list and drops you into
-its tmux session. Close the window whenever you want — the session (and anything
-running in it, like a Claude Code agent) keeps running on the host. Come back
-with the same command. Sessions even rebuild themselves after a reboot.
+**projects**. One short command (`pj`) lists every project across your machines,
+and jumping into one *just works* — `switch-client`/`attach` if it's on this box,
+a transparent `ssh` hop if it's on another. Close the window whenever you want;
+the session (and anything running in it, like a Claude Code agent) keeps running.
+Come back with the same command. Sessions even rebuild themselves after a reboot.
 
-It was built to solve three specific pains:
+Built to kill three frictions:
 
 1. Landing in the **wrong session** and doing things in the wrong place.
 2. **Losing work on reboot** — tmux sessions don't survive a restart by default.
-3. Wanting to **close the laptop / drop SSH** mid-task and have the work keep going.
+3. Wanting to **close the laptop / drop SSH / switch machines** mid-task and have
+   the work keep going, reachable from anywhere on the fleet.
 
 ---
 
@@ -19,13 +21,13 @@ It was built to solve three specific pains:
 ```bash
 git clone <your-repo-url> ~/Projects/tmux
 ~/Projects/tmux/install.sh
-exec $SHELL          # or open a new shell, to pick up the alias
+exec $SHELL          # pick up the alias + completion
 
 pj                   # pick a project and jump in
 ```
 
-`pj` is the alias for `proj` (chosen so it doesn't collide with a common
-`p='cd ~/Projects'`). Everything below uses `pj`.
+`pj` is the alias for `proj` (chosen so it won't collide with a common
+`p='cd ~/Projects'`).
 
 ---
 
@@ -33,41 +35,28 @@ pj                   # pick a project and jump in
 
 | Command | What it does |
 |---|---|
-| `pj` | fzf picker of this host's projects (● live, ○ stopped); pick one to jump in |
-| `pj <name>` | jump straight into that project's session |
-| `pj ls` | list this host's registered projects |
-| `pj here [name] [cmd]` | register the session **you're sitting in** as a project |
-| `pj add <name> [dir] [cmd]` | register a project (`dir` defaults to `$PWD`) |
-| `pj rm <name>` | retire a project (asks before killing a live session) |
+| `pj` | fzf picker of **all** fleet projects (● live, ○ stopped, cyan host = remote); pick to jump |
+| `pj <name>` | jump straight in — local or remote, it figures out which |
+| `pj ls` | table of every project across this host + peers, with status |
+| `pj here [name] [cmd]` | register the session **you're in** as a project (this host) |
+| `pj add <name> [dir] [cmd]` | register a project on this host (`dir` defaults to `$PWD`) |
+| `pj rm <name>` | retire a project on this host (asks before killing a live session) |
 | `pj -h` | help |
 
-Inside tmux, **`prefix + p`** (default prefix is `Ctrl-b`) opens the picker in a
-popup.
+`<TAB>` completes project names and subcommands. Inside tmux, **`prefix + p`**
+(default prefix `Ctrl-b`) opens the picker in a popup.
 
 ### `pj here` — keep the session you're in
 
-The most common way to register something. You're already working in a tmux
-session and decide it's worth keeping:
-
 ```
 pj here blamethe
-│  │    └── a name YOU choose. It becomes: the tmux session name, the registry
-│  │        entry, and how you return later → `pj blamethe`
+│  │    └── a name YOU choose → tmux session name + how you return (pj blamethe)
 │  └── "use the session I'm in right now" (reads host = this box, dir = current path)
 └── the command
 ```
 
-Output:
-```
-registered 'blamethe' -> /home/me/Projects/blamethe  (cccc)
-rejoin anytime with:  pj blamethe
-```
-
-Omit the name (`pj here`) to keep the session's current name. Add a 4th word to
-override the relaunch command (defaults to `cccc`).
-
-You can also run it from **inside Claude Code** with the `/keep [name]` slash
-command (see below).
+Omit the name to keep the current session name. From **inside Claude Code**, the
+`/keep [name]` slash command does the same thing.
 
 ---
 
@@ -75,89 +64,101 @@ command (see below).
 
 Running something long (a build, a Claude Code agent turn)? Just leave.
 
-**Jump out (detach):** `Ctrl-b` then `d`.
+- **Detach:** `Ctrl-b` then `d`. Disconnects your *view*, not the process.
+- Closing the terminal window or dropping SSH does the same — none of it kills
+  the session.
+- **Come back:** `pj <name>` (or `pj` and pick the ● one) — from *any* machine.
 
-This disconnects your *view*, not the process. Whatever is running keeps
-running on the host. The same is true if you simply **close the terminal
-window** or **let your SSH connection drop** — none of those kill the session.
+Detach is **not** pause: a mid-task agent keeps going; an idle one keeps waiting.
 
-**Come back:**
-```bash
-pj blamethe      # or: pj  (the picker shows ● for running sessions)
-```
+---
 
-Detach is **not** pause: a mid-task agent keeps going; an idle one keeps
-waiting. The only things that stop a session are quitting the program, killing
-the session (`pj rm` / `tmux kill-session`), or a reboot — and reboots are
-covered (below).
+## The fleet (cross-host)
+
+Each machine owns its own projects. `pj` shows the **union** across the fleet and
+routes you to the right box:
+
+- Local project → `switch-client` (if you're in tmux) or `attach`.
+- Remote project → `ssh -t <host> proj-attach <name>`; detach (`Ctrl-b d`) drops
+  you back where you started.
+
+Which machines are in the fleet is set by [`peers`](peers.example) — one short
+hostname (`hostname -s`) per line; each host skips itself, so the same file works
+everywhere. **Requires passwordless SSH between the listed hosts.** With `peers`
+empty/commented, `proj` simply runs single-host.
+
+The list is assembled live: each host reads the others' registries and `tmux ls`
+over SSH, in parallel, cached ~5s, with a short timeout so an unreachable peer
+can't hang the picker — nothing to keep in sync.
 
 ---
 
 ## Surviving reboots
 
-On Linux, the installer sets up a `systemd --user` service, `tmux-projects`,
-that runs [`bin/proj-boot`](bin/proj-boot) at boot. It recreates each of *this
-host's* sessions and re-runs each one's `startcmd`. Because the default startcmd
-is `cccc` (`claude --dangerously-skip-permissions -c`), Claude Code resumes the
-last conversation in that directory.
+On Linux, the installer sets up a `systemd --user` service, `tmux-projects`, that
+runs [`bin/proj-boot`](bin/proj-boot) at boot. It recreates this host's sessions
+and re-runs each one's `startcmd`. With the default `cccc`
+(`claude --dangerously-skip-permissions -c`), Claude Code resumes the last
+conversation in that directory. Works without login because **user lingering** is
+enabled (the installer turns it on).
 
-This works without you logging in because **user lingering** is enabled
-(`loginctl enable-linger`), which the installer turns on.
+> ⚠️ With `cccc` as the startcmd, a freshly-booted unattended box auto-launches
+> Claude Code with `--dangerously-skip-permissions` — no prompts. Change a
+> project's startcmd in `projects.tsv` if you don't want that (e.g.
+> `claude --continue`, or blank for a plain shell).
 
-> ⚠️ With `cccc` as the startcmd, a freshly-booted unattended box will
-> auto-launch Claude Code with `--dangerously-skip-permissions` — no prompts.
-> Change the startcmd in `projects.tsv` if you don't want that for a given
-> project (e.g. `claude --continue`, or a plain shell with no command).
+In-memory process state can't be snapshotted; what survives is the session layout
++ working dir (recreated) and the Claude *conversation* (resumed from disk).
 
-What does **not** survive a reboot: the live in-memory state of a process can't
-be snapshotted. What survives is the session layout + working dir (recreated)
-and the Claude *conversation* (resumed from disk). The process itself is fresh.
+---
+
+## When you're NOT in tmux
+
+`pj <name>` handles every case:
+
+- **In tmux** → `switch-client` (no nesting).
+- **Plain terminal, not in tmux** → it attaches you (the normal path).
+- **No terminal at all** (a script, or a tool's non-interactive shell) → it can't
+  attach, so it ensures the session exists and tells you exactly how to get in:
+  `Open it from an interactive shell with: pj <name>`.
+- **`pj here` with no tmux** → there's no session to keep; it tells you how to
+  start one (`pj add … && pj …`, or `tmux new -s …` then `pj here`).
 
 ---
 
 ## Use from inside Claude Code: `/keep`
 
-[`commands/keep.md`](commands/keep.md) is a user-level Claude Code slash command.
-Install it once:
+[`commands/keep.md`](commands/keep.md) is a user-level slash command. Install once:
 
 ```bash
 cp commands/keep.md ~/.claude/commands/keep.md
 ```
 
-Then, from any Claude Code session running inside tmux:
+Then from a Claude Code session running **inside tmux**:
 
 ```
 /keep myproject
 ```
 
-It runs `proj here myproject` for you (the Bash tool inherits `$TMUX`, so it
-targets the current session). Prerequisite: Claude Code must be running **inside
-tmux** — check with `echo $TMUX` (non-empty = good). If it isn't, there's no
-session to keep; start future work via `pj`, which always lands you in tmux.
+It runs `proj here myproject` (the Bash tool inherits `$TMUX`, so it targets the
+current session). Check you're in tmux first with `echo $TMUX`.
 
 ---
 
 ## The registry
 
-A single tab-separated file, `projects.tsv`, one line per project:
+A tab-separated file, `projects.tsv`, one line per project on this host:
 
 ```
 name <TAB> host <TAB> dir <TAB> startcmd
 ```
 
-Example:
-```
-blamethe	red	/home/me/Projects/blamethe	cccc
-```
-
-- **It is gitignored.** Each machine keeps its own untracked copy, seeded from
-  [`projects.tsv.example`](projects.tsv.example) on first install. Edit by hand
-  (use real tabs) or with `pj add` / `pj here`.
-- `host` = `hostname -s`. `proj` only shows and acts on rows for the current
-  host (single-host model, see below).
-- `startcmd` is typed into the session's shell on first create. `cccc` is an
-  alias (`claude --dangerously-skip-permissions -c`); use any command you like,
-  or leave it blank for a plain shell.
+- **Gitignored**, per-host, seeded from [`projects.tsv.example`](projects.tsv.example)
+  on first install. Edit by hand (real tabs) or with `pj add` / `pj here`.
+- A host only acts on rows where `host` == its own `hostname -s`; foreign rows are
+  ignored locally and reported by the host that owns them.
+- `startcmd` is typed into the session's shell on first create. `cccc` is an alias
+  (`claude --dangerously-skip-permissions -c`); use any command, or leave blank.
 
 ---
 
@@ -165,81 +166,57 @@ blamethe	red	/home/me/Projects/blamethe	cccc
 
 | File | Role |
 |---|---|
-| [`bin/proj`](bin/proj) | the CLI: picker, jump, `ls`, `here`, `add`, `rm` |
-| [`bin/proj-attach`](bin/proj-attach) | ensure the session exists, then `switch-client` (if already in tmux) or `attach` |
-| [`bin/proj-status`](bin/proj-status) | live ●/○ status for the picker (queries local `tmux ls`) |
+| [`bin/proj`](bin/proj) | the CLI: picker, fleet-aware jump, `ls`, `here`, `add`, `rm` |
+| [`bin/proj-attach`](bin/proj-attach) | (per host) ensure session, then switch-client / attach / guide |
+| [`bin/proj-status`](bin/proj-status) | fleet status for the picker & `ls` (local + peers over SSH) |
 | [`bin/proj-boot`](bin/proj-boot) | boot-time session rebuild, run by the systemd service |
-| [`tmux.conf`](tmux.conf) | loud project name in the status bar + popup picker keybind |
-| [`systemd/tmux-projects.service`](systemd/tmux-projects.service) | user service that runs `proj-boot` at boot |
+| [`bin/proj-completion.bash`](bin/proj-completion.bash) | bash tab-completion for `pj` |
+| [`tmux.conf`](tmux.conf) | loud project name in status bar + popup picker keybind |
+| [`systemd/tmux-projects.service`](systemd/tmux-projects.service) | user service running `proj-boot` at boot |
 | [`install.sh`](install.sh) | idempotent installer |
 | [`commands/keep.md`](commands/keep.md) | the `/keep` Claude Code slash command |
 
-The **jump primitive** is `proj-attach`: it creates the session detached if
-needed (capturing the new pane id so the startcmd is sent reliably), then either
-`switch-client` (when you're already inside tmux, e.g. the popup) or `attach`
-(from a plain shell). The loud orange block at the left of the tmux status bar
-always shows the current session name, so you stop acting in the wrong one.
+The loud orange block at the left of the tmux status bar always shows the current
+session name, so you stop acting in the wrong one.
 
 ### What the installer does
 
-- Verifies deps (`tmux`, `fzf`; warns if `claude` isn't found).
-- Seeds `projects.tsv` from the example if absent.
-- Symlinks `~/.tmux.conf` → this repo's `tmux.conf` (won't clobber an existing
-  real file; tells you the `source-file` line to add instead).
-- Appends a marker-guarded block to `~/.bashrc`: adds `bin/` to `PATH`, defines
-  `alias pj=proj`, and an opt-out SSH-login auto-picker.
-- Installs + enables the `tmux-projects` user service (Linux) and ensures
-  lingering. On macOS it notes that the launchd service isn't implemented yet.
-
-### SSH-login auto-picker
-
-When you SSH into an installed box and aren't already in tmux, the picker opens
-automatically (the "easy to get back" behavior). Disable per-shell with
-`PROJ_NO_AUTOPICK=1`, or remove the block from `~/.bashrc`.
+Verifies deps (`tmux`, `fzf`; warns on missing `claude`); seeds `projects.tsv` and
+`peers` from the examples; symlinks `~/.tmux.conf`; appends a marker-guarded
+`~/.bashrc` block (PATH, `alias pj=proj`, completion, SSH-login auto-picker);
+installs + enables the `tmux-projects` user service and ensures lingering (Linux).
+macOS launchd is not implemented yet (it warns).
 
 ---
 
 ## Install / deploy
 
-On the box itself:
-```bash
-~/Projects/tmux/install.sh
-```
+On the box itself: `~/Projects/tmux/install.sh`
 
-To another host (single-host model — each box manages its own projects):
+To another host (note the exclude — each box keeps its own registry):
 ```bash
-rsync -a ~/Projects/tmux/ <host>:~/Projects/tmux/
+rsync -a --exclude=projects.tsv ~/Projects/tmux/ <host>:~/Projects/tmux/
 ssh <host> 'bash ~/Projects/tmux/install.sh'
 ```
-
-Requirements: `tmux` (3.2+ for the popup), `fzf`, bash. Linux for the boot
-service. `claude` only if you use `cccc`-style startcmds.
+Then add the host to `peers` on each box. Requirements: `tmux` (3.2+ for the
+popup), `fzf`, bash, passwordless SSH between fleet hosts. Linux for the boot
+service / `claude` if you use `cccc` startcmds.
 
 ---
 
-## Model & roadmap
+## Roadmap
 
-**Single-host, by design (for now).** Each machine manages its own projects;
-`pj` only shows/acts on the current host. The `host` column already exists in the
-registry so cross-host jumping slots in without changing the file format.
-
-Deferred:
-
-- **Cross-host jump** — `ssh -t <host> proj-attach <name>` so `pj` can route you
-  to a project on another box, plus fleet-wide live status in the picker.
-- **Shared registry** — git-backed/synced instead of a per-host copy.
-- **macOS** — a launchd boot service (the installer currently warns on Darwin).
+- **macOS** launchd boot service (the installer currently warns on Darwin).
+- Optionally git-back the registries instead of each host owning its own.
 
 ---
 
 ## Troubleshooting
 
-- **`pj: command not found`** — open a new shell or `source ~/.bashrc` (the alias
-  is added by the installer).
-- **`proj here: run this inside the tmux session…`** — you're not in tmux;
-  `echo $TMUX` is empty. Start under tmux first.
-- **Picker is empty** — no projects registered for this host yet. Use `pj add` or
-  `pj here`, or check `hostname -s` matches the `host` column.
-- **Boot sessions didn't come back** — check the service:
-  `systemctl --user status tmux-projects` and confirm
+- **`pj: command not found`** — `exec $SHELL` or `source ~/.bashrc`.
+- **Picker/`ls` doesn't show another host** — add it to `peers` on both boxes and
+  confirm passwordless SSH works *both* directions (`ssh <host> hostname`).
+- **`proj here: you're not inside tmux`** — `echo $TMUX` is empty; start under tmux.
+- **Picker empty** — no projects registered for this host; use `pj add`/`pj here`.
+- **Boot sessions didn't return** — `systemctl --user status tmux-projects` and
   `loginctl show-user "$USER" | grep Linger=yes`.

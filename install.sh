@@ -26,6 +26,12 @@ if [ ! -f "$REPO/projects.tsv" ]; then
   echo "created projects.tsv from example (edit it, or use: proj add / proj here)"
 fi
 
+# seed the peers list (cross-host fleet) on first install; gitignored, per-host
+if [ ! -f "$REPO/peers" ]; then
+  cp "$REPO/peers.example" "$REPO/peers"
+  echo "created peers from example (edit it to enable cross-host jumping)"
+fi
+
 # --- tmux.conf ------------------------------------------------------------
 if [ -e "$HOME/.tmux.conf" ] && [ ! -L "$HOME/.tmux.conf" ]; then
   echo "WARN: ~/.tmux.conf exists and isn't our symlink; leaving it." >&2
@@ -45,6 +51,7 @@ else
 $MARK
 export PATH="\$PATH:$REPO/bin"
 alias pj=proj
+[ -f "$REPO/bin/proj-completion.bash" ] && source "$REPO/bin/proj-completion.bash"
 # auto-pick a project on interactive SSH login when not already in tmux
 if [[ \$- == *i* && -n \${SSH_CONNECTION:-} && -z \${TMUX:-} && -z \${PROJ_NO_AUTOPICK:-} ]]; then
   proj

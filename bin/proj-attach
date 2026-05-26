@@ -19,7 +19,16 @@ if ! tmux has-session -t "=$name" 2>/dev/null; then
 fi
 
 if [ -n "${TMUX:-}" ]; then
+  # already inside tmux: retarget the current client (no nesting)
   exec tmux switch-client -t "=$name"
-else
+elif [ -t 0 ] || [ -t 1 ]; then
+  # plain terminal, not in tmux: attach (this is the normal/expected path)
   exec tmux attach -t "=$name"
+else
+  # no controlling terminal (script, or a Bash tool with no tty): can't attach.
+  # The session is created and running — just tell the caller how to get in.
+  echo "proj: session '$name' is ready and running on $(hostname -s)," >&2
+  echo "      but there's no terminal here to attach to." >&2
+  echo "      Open it from an interactive shell with:  pj $name" >&2
+  exit 0
 fi

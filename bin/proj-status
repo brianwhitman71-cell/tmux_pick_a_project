@@ -1,22 +1,83 @@
 #!/usr/bin/env bash
-# proj-status — emit one picker line per project ON THIS HOST:
-#   name <TAB> <dot> dir
-# <dot> is green ● if the session is live right now, grey ○ otherwise.
-# Local-only and instant (single-host model). Cross-host status is a later add.
+# proj-status — fleet-aware project list: THIS host + peers (cross-host).
+# Reads each host's own registry over SSH (no shared file to keep in sync) and
+# its live `tmux ls`, in parallel, cached briefly so the picker stays instant
+# and an unreachable peer can't hang it.
+#
+# Cache line:  name <TAB> host <TAB> dir <TAB> live(0|1)
+# Modes:
+#   (default)  picker lines:  name <TAB> host <TAB> pretty-display
+#   --plain    aligned table for `pj ls`
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REG="$REPO/projects.tsv"
 self_host="${PROJ_HOST:-$(hostname -s)}"
+CACHE="/tmp/proj-status-$(id -u).cache"
+TTL="${PROJ_CACHE_TTL:-5}"
+SSH_OPTS=(-o ConnectTimeout=2 -o BatchMode=yes -o StrictHostKeyChecking=accept-new)
 
-live="$(tmux ls -F '#S' 2>/dev/null || true)"
-is_live() { printf '%s\n' "$live" | grep -qxF "$1"; }
+peers() {
+  [ -f "$REPO/peers" ] || return 0
+  grep -v '^#' "$REPO/peers" | sed '/^[[:space:]]*$/d' | grep -vxF "$self_host" || true
+}
 
-green=$'\e[32m●\e[0m'
-grey=$'\e[90m○\e[0m'
+# emit "name host dir live" for the local registry (only rows that belong here,
+# so a stray foreign row can't masquerade as local — the owning peer reports it)
+collect_local() {
+  local live; live="$(tmux ls -F '#S' 2>/dev/null || true)"
+  awk -F'\t' -v h="$self_host" '$1!~/^#/ && NF && $2==h' "$REG" 2>/dev/null | while IFS=$'\t' read -r n hh d c; do
+    printf '%s\n' "$live" | grep -qxF "$n" && l=1 || l=0
+    printf '%s\t%s\t%s\t%s\n' "$n" "$self_host" "$d" "$l"
+  done
+}
 
-awk -F'\t' '$1!~/^#/ && NF' "$REG" | while IFS=$'\t' read -r name host dir cmd; do
-  [ "$host" = "$self_host" ] || continue
-  if is_live "$name"; then dot="$green"; else dot="$grey"; fi
-  printf '%s\t%s %s\n' "$name" "$dot" "$dir"
-done
+# emit "name host dir live" for a peer (its registry + its live sessions)
+collect_peer() {
+  local ph="$1" raw reg live
+  raw="$(ssh "${SSH_OPTS[@]}" "$ph" \
+        'cat ~/Projects/tmux/projects.tsv 2>/dev/null; echo "@@LIVE@@"; tmux ls -F "#S" 2>/dev/null' \
+        2>/dev/null)" || return 0
+  reg="${raw%%@@LIVE@@*}"
+  live="${raw#*@@LIVE@@}"
+  printf '%s\n' "$reg" | awk -F'\t' '$1!~/^#/ && NF' | while IFS=$'\t' read -r n h d c; do
+    printf '%s\n' "$live" | grep -qxF "$n" && l=1 || l=0
+    printf '%s\t%s\t%s\t%s\n' "$n" "$ph" "$d" "$l"
+  done
+}
+
+build_cache() {
+  local tmp ph; tmp="$(mktemp -d)"
+  collect_local >"$tmp/0local" &
+  for ph in $(peers); do collect_peer "$ph" >"$tmp/peer.$ph" & done
+  wait
+  cat "$tmp"/0local "$tmp"/peer.* 2>/dev/null >"$CACHE.tmp" && mv "$CACHE.tmp" "$CACHE"
+  rm -rf "$tmp"
+}
+
+stale() {
+  [ ! -f "$CACHE" ] && return 0
+  [ "$(( $(date +%s) - $(stat -c %Y "$CACHE" 2>/dev/null || echo 0) ))" -ge "$TTL" ]
+}
+
+stale && build_cache
+
+green=$'\e[32m●\e[0m'; grey=$'\e[90m○\e[0m'; cyan=$'\e[36m'; rst=$'\e[0m'
+
+case "${1:-picker}" in
+  --plain)
+    { printf 'PROJECT\tHOST\tSTATUS\tDIR\n'
+      while IFS=$'\t' read -r n h d l; do
+        [ "$l" = 1 ] && s='● running' || s='○ stopped'
+        printf '%s\t%s\t%s\t%s\n' "$n" "$h" "$s" "$d"
+      done <"$CACHE"
+    } | column -t -s$'\t'
+    ;;
+  *)
+    while IFS=$'\t' read -r n h d l; do
+      [ "$l" = 1 ] && dot="$green" || dot="$grey"
+      [ "$h" = "$self_host" ] && hc="$h" || hc="${cyan}${h}${rst}"
+      printf '%s\t%s\t%s %-14s %-10s %s\n' "$n" "$h" "$dot" "$n" "($hc)" "$d"
+    done <"$CACHE"
+    ;;
+esac
