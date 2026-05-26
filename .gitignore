@@ -1,0 +1,8 @@
+# Live, per-host registry: your actual projects, dirs, and hosts.
+# Each machine keeps its own untracked copy (install.sh seeds it from the example).
+projects.tsv
+
+# editor / OS cruft
+*.swp
+*~
+.DS_Store

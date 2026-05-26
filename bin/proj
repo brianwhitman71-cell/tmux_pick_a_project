@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# proj — pick a project and jump into its tmux session. Close the window
+# anytime; the session keeps running and `proj` brings you back.
+# Single-host model: acts only on projects registered for THIS host.
+set -uo pipefail
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REG="$REPO/projects.tsv"
+BIN="$REPO/bin"
+self_host="${PROJ_HOST:-$(hostname -s)}"
+
+usage() {
+  cat <<'EOF'
+proj — project-centric tmux switcher (this host)
+
+  proj                    fzf picker (shows live ●/○ status), then jump
+  proj <name>             jump straight into that project's session
+  proj ls                 list this host's projects
+  proj here [name] [cmd]  register the CURRENT session as a long-running
+                          project (renames it to <name> if given)
+  proj add <name> [dir] [cmd]   register a project (dir defaults to $PWD)
+  proj rm <name>          retire a project (asks before killing a live one)
+
+Close the window and rejoin anytime with:  pj <name>
+Default startcmd is 'cccc' (claude --dangerously-skip-permissions -c).
+EOF
+}
+
+registered() { awk -F'\t' -v n="$1" '$1!~/^#/ && $1==n{f=1} END{exit !f}' "$REG"; }
+
+case "${1:-}" in
+  -h|--help|help) usage; exit 0 ;;
+
+  ls)
+    awk -F'\t' -v h="$self_host" '$1!~/^#/ && NF && $2==h' "$REG" | column -t -s$'\t'
+    exit 0 ;;
+
+  add)
+    shift
+    name="${1:?usage: proj add <name> [dir] [cmd]}"
+    dir="${2:-$PWD}"; cmd="${3:-cccc}"
+    registered "$name" && { echo "proj: '$name' already registered" >&2; exit 1; }
+    printf '%s\t%s\t%s\t%s\n' "$name" "$self_host" "$dir" "$cmd" >>"$REG"
+    echo "added: $name -> $dir  ($cmd)"
+    exit 0 ;;
+
+  here)
+    shift
+    [ -n "${TMUX:-}" ] || { echo "proj here: run this inside the tmux session you want to keep" >&2; exit 1; }
+    cur="$(tmux display-message -p '#S')"
+    name="${1:-$cur}"
+    cmd="${2:-cccc}"
+    dir="$(tmux display-message -p '#{pane_current_path}')"
+    registered "$name" && { echo "proj: '$name' already registered (see: proj ls)" >&2; exit 1; }
+    [ "$name" != "$cur" ] && tmux rename-session "$name"
+    printf '%s\t%s\t%s\t%s\n' "$name" "$self_host" "$dir" "$cmd" >>"$REG"
+    echo "registered '$name' -> $dir  ($cmd)"
+    echo "rejoin anytime with:  pj $name"
+    exit 0 ;;
+
+  rm|remove)
+    shift
+    name="${1:?usage: proj rm <name>}"
+    registered "$name" || { echo "proj: '$name' not in registry" >&2; exit 1; }
+    tmp="$(mktemp)"
+    awk -F'\t' -v n="$name" '$1 ~ /^#/ || $1 != n {print}' "$REG" >"$tmp" && mv "$tmp" "$REG"
+    echo "removed '$name' from registry"
+    if tmux has-session -t "=$name" 2>/dev/null; then
+      read -r -p "kill the running '$name' session too (ends anything in it)? [y/N] " ans
+      if [[ "$ans" =~ ^[Yy]$ ]]; then
+        tmux kill-session -t "=$name"; echo "killed session '$name'"
+      else
+        echo "session '$name' left running (kill later: tmux kill-session -t $name)"
+      fi
+    fi
+    exit 0 ;;
+esac
+
+# --- jump -----------------------------------------------------------------
+name="${1:-}"
+if [ -z "$name" ]; then
+  name="$("$BIN/proj-status" | fzf --ansi --delimiter=$'\t' \
+            --prompt='project> ' --height=60% --reverse \
+          | cut -f1 || true)"
+  [ -n "$name" ] || exit 0
+fi
+
+row="$(awk -F'\t' -v n="$name" '$1!~/^#/ && $1==n {print; exit}' "$REG")"
+[ -n "$row" ] || { echo "proj: unknown project '$name'" >&2; exit 1; }
+IFS=$'\t' read -r pname phost pdir pcmd <<<"$row"
+
+if [ "$phost" != "$self_host" ]; then
+  echo "proj: '$name' lives on '$phost'. Cross-host jump isn't enabled yet —" >&2
+  echo "      ssh to $phost and run 'p $name' there." >&2
+  exit 1
+fi
+exec "$BIN/proj-attach" "$name"

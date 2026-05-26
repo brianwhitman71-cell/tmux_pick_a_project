@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# proj-attach <name> — runs ON the target host. Ensures the project's tmux
+# session exists (creating it + launching its startcmd if needed), then either
+# switch-client (if we're already inside tmux) or attach (fresh shell / ssh -t).
+set -uo pipefail
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REG="$REPO/projects.tsv"
+name="${1:?usage: proj-attach <name>}"
+
+row="$(awk -F'\t' -v n="$name" '$1!~/^#/ && $1==n {print; exit}' "$REG")"
+[ -n "$row" ] || { echo "proj-attach: unknown project '$name'" >&2; exit 1; }
+IFS=$'\t' read -r pname phost pdir pcmd <<<"$row"
+: "${pdir:=$HOME}"
+
+if ! tmux has-session -t "=$name" 2>/dev/null; then
+  pane="$(tmux new-session -d -P -F '#{pane_id}' -s "$name" -c "$pdir")"
+  [ -n "${pcmd:-}" ] && tmux send-keys -t "$pane" "$pcmd" Enter
+fi
+
+if [ -n "${TMUX:-}" ]; then
+  exec tmux switch-client -t "=$name"
+else
+  exec tmux attach -t "=$name"
+fi

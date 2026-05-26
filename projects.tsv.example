@@ -1,0 +1,12 @@
+# Project registry  —  name <TAB> host <TAB> dir <TAB> startcmd
+# Fields are separated by a real TAB.
+#   name      project + tmux session name; what you type to return (pj <name>)
+#   host      short hostname (output of `hostname -s`); proj only acts on this host
+#   dir       absolute working directory for the session
+#   startcmd  command typed into the session's shell on first create
+#             (cccc is an example alias for: claude --dangerously-skip-permissions -c)
+#
+# install.sh copies this to projects.tsv on first install. Then edit it, or use:
+#   proj add <name> [dir] [cmd]      (dir defaults to $PWD)
+#   proj here [name] [cmd]           (register the session you're sitting in)
+example	myhost	/home/me/Projects/example	cccc

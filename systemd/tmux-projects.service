@@ -1,0 +1,12 @@
+[Unit]
+Description=Rebuild project tmux sessions (proj-boot) at boot
+After=default.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=%h/Projects/tmux/bin/proj-boot
+
+[Install]
+WantedBy=default.target
