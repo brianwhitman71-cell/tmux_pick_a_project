@@ -159,6 +159,10 @@ name <TAB> host <TAB> dir <TAB> startcmd
   ignored locally and reported by the host that owns them.
 - `startcmd` is typed into the session's shell on first create. `cccc` is an alias
   (`claude --dangerously-skip-permissions -c`); use any command, or leave blank.
+- Names may contain dots (e.g. `nixfred.com`). tmux can't use `.`/`:` in a session
+  name (they're target separators), so the tmux session is named with those mapped
+  to `_` (`nixfred.com` → session `nixfred_com`). You always type the real name
+  (`pj nixfred.com`); the mapping is internal.
 
 ---
 

@@ -10,11 +10,12 @@ self_host="${PROJ_HOST:-$(hostname -s)}"
 
 awk -F'\t' '$1!~/^#/ && NF' "$REG" | while IFS=$'\t' read -r name host dir cmd; do
   [ "$host" = "$self_host" ] || continue
-  if tmux has-session -t "=$name" 2>/dev/null; then
+  sess="$(printf '%s' "$name" | tr '.:' '__')"   # tmux-safe session name
+  if tmux has-session -t "=$sess" 2>/dev/null; then
     echo "exists  $name"
     continue
   fi
-  pane="$(tmux new-session -d -P -F '#{pane_id}' -s "$name" -c "${dir:-$HOME}")"
+  pane="$(tmux new-session -d -P -F '#{pane_id}' -s "$sess" -c "${dir:-$HOME}")"
   [ -n "${cmd:-}" ] && tmux send-keys -t "$pane" "$cmd" Enter
   echo "started $name  ($dir)"
 done

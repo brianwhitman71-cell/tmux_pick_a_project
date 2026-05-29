@@ -68,7 +68,8 @@ case "${1:-}" in
     name="${1:-$cur}"; cmd="${2:-cccc}"
     dir="$(tmux display-message -p '#{pane_current_path}')"
     registered "$name" && { echo "proj: '$name' already registered (see: pj ls)" >&2; exit 1; }
-    [ "$name" != "$cur" ] && tmux rename-session "$name"
+    sess="$(printf '%s' "$name" | tr '.:' '__')"   # tmux rewrites . and : to _
+    [ "$sess" != "$cur" ] && tmux rename-session "$sess"
     printf '%s\t%s\t%s\t%s\n' "$name" "$self_host" "$dir" "$cmd" >>"$REG"
     echo "kept '$name' -> $dir  ($cmd).  Rejoin anytime with:  pj $name"
     exit 0 ;;
@@ -80,9 +81,10 @@ case "${1:-}" in
     tmp="$(mktemp)"
     awk -F'\t' -v n="$name" '$1 ~ /^#/ || $1 != n {print}' "$REG" >"$tmp" && mv "$tmp" "$REG"
     echo "removed '$name' from $self_host registry"
-    if tmux has-session -t "=$name" 2>/dev/null; then
+    sess="$(printf '%s' "$name" | tr '.:' '__')"   # tmux rewrites . and : to _
+    if tmux has-session -t "=$sess" 2>/dev/null; then
       read -r -p "kill the running '$name' session too (ends anything in it)? [y/N] " ans
-      if [[ "$ans" =~ ^[Yy]$ ]]; then tmux kill-session -t "=$name"; echo "killed '$name'"
+      if [[ "$ans" =~ ^[Yy]$ ]]; then tmux kill-session -t "=$sess"; echo "killed '$name'"
       else echo "session '$name' left running"; fi
     fi
     exit 0 ;;

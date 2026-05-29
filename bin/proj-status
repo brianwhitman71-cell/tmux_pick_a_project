@@ -27,7 +27,7 @@ peers() {
 collect_local() {
   local live; live="$(tmux ls -F '#S' 2>/dev/null || true)"
   awk -F'\t' -v h="$self_host" '$1!~/^#/ && NF && $2==h' "$REG" 2>/dev/null | while IFS=$'\t' read -r n hh d c; do
-    printf '%s\n' "$live" | grep -qxF "$n" && l=1 || l=0
+    printf '%s\n' "$live" | grep -qxF "$(printf '%s' "$n" | tr '.:' '__')" && l=1 || l=0
     printf '%s\t%s\t%s\t%s\n' "$n" "$self_host" "$d" "$l"
   done
 }
@@ -41,7 +41,7 @@ collect_peer() {
   reg="${raw%%@@LIVE@@*}"
   live="${raw#*@@LIVE@@}"
   printf '%s\n' "$reg" | awk -F'\t' '$1!~/^#/ && NF' | while IFS=$'\t' read -r n h d c; do
-    printf '%s\n' "$live" | grep -qxF "$n" && l=1 || l=0
+    printf '%s\n' "$live" | grep -qxF "$(printf '%s' "$n" | tr '.:' '__')" && l=1 || l=0
     printf '%s\t%s\t%s\t%s\n' "$n" "$ph" "$d" "$l"
   done
 }
