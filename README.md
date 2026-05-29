@@ -82,6 +82,13 @@ routes you to the right box:
 - Remote project → `ssh -t <host> proj-attach <name>`; detach (`Ctrl-b d`) drops
   you back where you started.
 
+**Jumping to a remote project while already inside tmux** opens it *nested* (a
+remote tmux drawn inside your local pane — there's no way to switch a client
+across servers). `proj` warns you and tells you the keys: drive the inner
+(remote) session with a **double prefix** `Ctrl-b Ctrl-b <key>`, and return with
+`Ctrl-b Ctrl-b d` — a plain `Ctrl-b d` detaches your *local* box instead. The two
+status bars (local vs remote `#h`) tell you which one you're typing into.
+
 Which machines are in the fleet is set by [`peers`](peers.example) — one short
 hostname (`hostname -s`) per line; each host skips itself, so the same file works
 everywhere. **Requires passwordless SSH between the listed hosts.** With `peers`

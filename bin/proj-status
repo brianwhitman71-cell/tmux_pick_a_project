@@ -57,7 +57,8 @@ build_cache() {
 
 stale() {
   [ ! -f "$CACHE" ] && return 0
-  [ "$(( $(date +%s) - $(stat -c %Y "$CACHE" 2>/dev/null || echo 0) ))" -ge "$TTL" ]
+  local m; m="$(stat -c %Y "$CACHE" 2>/dev/null || stat -f %m "$CACHE" 2>/dev/null || echo 0)"
+  [ "$(( $(date +%s) - m ))" -ge "$TTL" ]
 }
 
 stale && build_cache

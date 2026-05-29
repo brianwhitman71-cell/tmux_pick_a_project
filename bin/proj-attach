@@ -12,6 +12,7 @@ row="$(awk -F'\t' -v n="$name" '$1!~/^#/ && $1==n {print; exit}' "$REG")"
 [ -n "$row" ] || { echo "proj-attach: unknown project '$name'" >&2; exit 1; }
 IFS=$'\t' read -r pname phost pdir pcmd <<<"$row"
 : "${pdir:=$HOME}"
+[ -d "$pdir" ] || { echo "proj: dir '$pdir' for '$name' is missing — starting in \$HOME" >&2; pdir="$HOME"; }
 
 # tmux rewrites '.' and ':' in session names to '_', so use a sanitized name for
 # every tmux op while the registry/display keeps the human name (e.g. nixfred.com)

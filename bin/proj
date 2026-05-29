@@ -108,14 +108,24 @@ fi
 
 if [ -z "$host" ]; then
   host="$(resolve_host "$name")" || {
-    echo "proj: don't know a project called '$name'." >&2
-    echo "      See what's available:  pj ls      Register a new one:  pj add $name <dir>" >&2
+    reach="$(peers | paste -sd' ' 2>/dev/null)"
+    echo "proj: don't know a project called '$name' on $self_host${reach:+ or reachable peers ($reach)}." >&2
+    echo "      If it lives on a box that's offline, bring that box up first." >&2
+    echo "      Otherwise:  pj ls   (see all)    pj add $name <dir>   (register here)" >&2
     exit 1
   }
 fi
 
 if [ "$host" = "$self_host" ]; then
   exec "$BIN/proj-attach" "$name"
+elif [ -n "${TMUX:-}" ]; then
+  # already in tmux: the remote session opens NESTED. Ctrl-b d would detach THIS
+  # box, not the remote — so tell the truth about the double prefix.
+  echo "→ '$name' is on $host. You're inside tmux, so it opens nested over ssh." >&2
+  echo "   Drive the remote with a DOUBLE prefix: Ctrl-b Ctrl-b <key>." >&2
+  echo "   Return here:  Ctrl-b Ctrl-b d   (a plain Ctrl-b d detaches THIS box)." >&2
+  exec ssh -t -o StrictHostKeyChecking=accept-new "$host" \
+       "~/Projects/tmux/bin/proj-attach $(printf '%q' "$name")"
 else
   echo "→ '$name' is on $host — hopping over ssh (Ctrl-b d to come back here)" >&2
   exec ssh -t -o StrictHostKeyChecking=accept-new "$host" \

@@ -15,7 +15,8 @@ awk -F'\t' '$1!~/^#/ && NF' "$REG" | while IFS=$'\t' read -r name host dir cmd; 
     echo "exists  $name"
     continue
   fi
-  pane="$(tmux new-session -d -P -F '#{pane_id}' -s "$sess" -c "${dir:-$HOME}")"
+  wdir="${dir:-$HOME}"; [ -d "$wdir" ] || wdir="$HOME"
+  pane="$(tmux new-session -d -P -F '#{pane_id}' -s "$sess" -c "$wdir")"
   [ -n "${cmd:-}" ] && tmux send-keys -t "$pane" "$cmd" Enter
   echo "started $name  ($dir)"
 done
