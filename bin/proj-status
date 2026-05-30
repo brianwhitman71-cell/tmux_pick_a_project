@@ -51,7 +51,12 @@ build_cache() {
   collect_local >"$tmp/0local" &
   for ph in $(peers); do collect_peer "$ph" >"$tmp/peer.$ph" & done
   wait
-  cat "$tmp"/0local "$tmp"/peer.* 2>/dev/null >"$CACHE.tmp" && mv "$CACHE.tmp" "$CACHE"
+  # Use ';' not '&&' between cat and mv. With no peers, the "$tmp"/peer.* glob
+  # finds no match and (nullglob being off) is passed to cat literally; cat can't
+  # open a file named "peer.*", so it exits non-zero. The local data WAS written
+  # to "$CACHE.tmp" regardless, but '&&' would then skip the mv, leaving the cache
+  # missing/stale -> `proj` and `proj ls` show an empty list on any single-host box.
+  cat "$tmp"/0local "$tmp"/peer.* 2>/dev/null >"$CACHE.tmp"; mv -f "$CACHE.tmp" "$CACHE"
   rm -rf "$tmp"
 }
 
