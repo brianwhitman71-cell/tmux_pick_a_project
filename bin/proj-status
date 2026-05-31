@@ -35,8 +35,15 @@ collect_local() {
 # emit "name host dir live" for a peer (its registry + its live sessions)
 collect_peer() {
   local ph="$1" raw reg live
+  # The remote command's exit status is that of its LAST command, `tmux ls`,
+  # which exits non-zero when the peer has no live sessions. Without the trailing
+  # `|| true` that non-zero status propagates through ssh, and the `|| return 0`
+  # below then silently drops the WHOLE peer — so a reachable peer whose projects
+  # are all stopped vanishes from the list and can't be jumped to (which would
+  # start them). collect_local already guards its own `tmux ls` the same way.
+  # `|| return 0` must mean "peer unreachable", not "peer reachable but idle".
   raw="$(ssh "${SSH_OPTS[@]}" "$ph" \
-        'cat ~/Projects/tmux/projects.tsv 2>/dev/null; echo "@@LIVE@@"; tmux ls -F "#S" 2>/dev/null' \
+        'cat ~/Projects/tmux/projects.tsv 2>/dev/null; echo "@@LIVE@@"; tmux ls -F "#S" 2>/dev/null || true' \
         2>/dev/null)" || return 0
   reg="${raw%%@@LIVE@@*}"
   live="${raw#*@@LIVE@@}"
